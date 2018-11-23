@@ -11,7 +11,7 @@ function rayinvr_fortran(command, working_dir)
         return;
     else
         if ~any(strcmp(valid_commands, command))
-            fprintf('\tInvalid command "interactive_%s.py".\n\tPlease choose one from ["%s"]\n', command, strjoin(valid_commands, '", "'));
+            fprintf('\tInvalid command "%s".\n\tPlease choose one from ["%s"]\n', command, strjoin(valid_commands, '", "'));
             return;
         end
     end
@@ -20,8 +20,10 @@ function rayinvr_fortran(command, working_dir)
         working_dir = pwd();
     end
 
-    fprintf('\nRunning command:\t%s\nWorking directory:\t%s\n\n', command, working_dir);
     script_dir = fileparts(mfilename('fullpath'));
-    shell_cmd = sprintf('pushd "%s" && python interactive_%s.py %s && popd', script_dir, command, working_dir);
+    script_name = sprintf('interactive_%s.py', command);
+    full_command = sprintf('python "%s"', fullfile(script_dir, script_name));
+    fprintf('\nRunning command:\t%s\nWorking directory:\t%s\n\n', full_command, working_dir);
+    shell_cmd = sprintf('%s %s', full_command, working_dir);
     system(shell_cmd);
 end

@@ -18,10 +18,9 @@ MAT_FILE_NAME = 'plotdata.pltsyn.mat'
 COLORS = [
     '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2',
     '#7f7f7f', '#bcbd22', '#17becf',
-    'plum', 'powderblue', 'purple', 'rebeccapurple', 'red', 'rosybrown',
-    'royalblue', 'saddlebrown', 'salmon', 'sandybrown', 'seagreen', 'olive',
-    'olivedrab', 'orange', 'orangered', 'orchid', 'palegoldenrod', 'palegreen',
-    'paleturquoise',]
+    'plum', 'powderblue', 'purple', 'red', 'rosybrown', 'royalblue', 'saddlebrown',
+    'salmon', 'sandybrown', 'seagreen', 'olive', 'olivedrab', 'orange', 'orangered',
+    'orchid', 'palegoldenrod', 'palegreen', 'paleturquoise',]
 
 
 # parse command line Arguments
@@ -95,9 +94,14 @@ def plot_data(data, labels, xtraces):
 
 
 def plot_data_autoscale(data, labels, xtraces):
+    # max number of ticklabels that can be shown in xaxis
+    MAX_NTICK = 20
+
     all_labels = sorted(list(set(labels.tolist())))
     all_xtraces = sorted(list(set(xtraces.tolist())))
     ntrace = len(all_xtraces)
+
+    tick_gap = ntrace // (MAX_NTICK+1) + 1
 
     fig = tools.make_subplots(rows=1, cols=ntrace, horizontal_spacing=0)
 
@@ -131,22 +135,25 @@ def plot_data_autoscale(data, labels, xtraces):
         fig['layout']['xaxis{}'.format(i+1)].update(
             side='top',
             scaleanchor='x',
+            autorange=True,
+            showline=True,
+            showgrid=False,
+            ticks='inside',
+            tickmode='array',
+            tickvals=[0],
+            ticktext=[all_xtraces[i]],
+            showticklabels=(i % tick_gap == 0),
+            zeroline=True,
+            zerolinecolor='#eee',
             # showspikes=True,
             # spikecolor='#eee',
             # spikethickness=1,
             # spikedash='dot',
-            tickmode='array',
-            tickvals=[0],
-            ticktext=[all_xtraces[i]],
-            autorange=True,
-            showline=True,
-            zeroline=False,
-            showgrid=False,
         )
         fig['layout']['yaxis{}'.format(i+1)].update(
             range=[ymax, ymin],
-            zeroline=True,
             showline=False,
+            zeroline=False,
             showticklabels=False,
         )
     fig['layout'].update(
@@ -157,6 +164,7 @@ def plot_data_autoscale(data, labels, xtraces):
         yaxis=dict(
             title='Time (s)',
             showline=True,
+            zeroline=True,
             showticklabels=True,
             )
         )
