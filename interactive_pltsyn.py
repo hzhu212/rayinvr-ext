@@ -12,6 +12,7 @@ from scipy.io import loadmat
 from plotly import offline
 from plotly import tools
 import plotly.graph_objs as go
+import plotly.io as pio
 
 
 MAT_FILE_NAME = 'plotdata.pltsyn.mat'
@@ -211,5 +212,9 @@ labels = labels[~empty_idx]
 fig1 = plot_data(data, labels, xtraces)
 fig2 = plot_data_autoscale(data, labels, xtraces)
 
-offline.plot(fig1, filename=os.path.join(working_dir, 'pltsyn.html'))
-offline.plot(fig2, filename=os.path.join(working_dir, 'pltsyn_autoscale.html'))
+image_dir = os.path.join(working_dir, 'images')
+if not os.path.exists(image_dir):
+    os.mkdir(image_dir)
+offline.plot(fig1, filename=os.path.join(image_dir, 'pltsyn.html'))
+offline.plot(fig2, filename=os.path.join(image_dir, 'pltsyn_autoscale.html'))
+# pio.write_image(fig1, os.path.join(image_dir, 'pltsyn.pdf'))
