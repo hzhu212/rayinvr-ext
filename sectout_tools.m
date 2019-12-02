@@ -1,9 +1,10 @@
-% 解析和处理 rayinvr/tramp 生成的 sect.out 文件（模拟事件和振幅）
+% 解析和处理 rayinvr/tramp 生成的 sect.out 文件（模拟事件和振幅）。
+% 进行走时、振幅、相位分析。
 
 % p = 'D:\Archive\Research\rayinvr\rayinvr-data\obc\stage_1_100\p\sect_ext.out';
 % [data, xshot] = parse_sectout(p);
 
-plot_stages('s', 'time', {3.2}, 0.003, false);
+plot_stages('p', 'time', {2.2, 3.2, 4.2}, 0.000, false);
 
 % refresh_sectout({'p'});
 
@@ -35,11 +36,15 @@ function [] = plot_stages(wave, ytype, events, xnoise, refresh)
 % wave: 'p' 或 's'，绘制纵波事件还是横波事件，默认为 'p'。
 % ytype: 指定绘制数据的类别，包括走时(time)、振幅(amplitude)、相位(phase)。
 % events: 一个 cell，限定要绘制的事件代号，如 {2.2, 3.2}。
-% xnoise: 为接收点的 X 坐标添加随机白噪音的最大值，单位为 km。默认为 0.003，即 3m。
-% refresh: 载入 sect.out 数据是是否强制重新解析原始数据，而不载入缓存的数据？
+% xnoise: 为接收点的 X 坐标添加的高斯随机噪音的标准差，单位为 km。默认为 0.003，即 3m。
+% refresh: 载入 sect.out 数据时强制重新解析原始数据，否则载入缓存的数据。
 
-    ytype_id_mapper = containers.Map({'time', 'amplitude', 'phase', 'amp'}, {1, 2, 3, 2});
+    wave_mapper = containers.Map({'p', 's'}, {'P wave', 'S wave'});
+    wave_mapper_zh = containers.Map({'p', 's'}, {'纵波', '横波'});
+    ytype_id_mapper = containers.Map({'time', 'amplitude', 'phase'}, {1, 2, 3});
     ytype_name_mapper = containers.Map({1, 2, 3}, {'Time (s)', 'Amplitude', 'Phase (°)'});
+    ytype_name_mapper_zh = containers.Map({1, 2, 3}, {'走时 (s)', '振幅', '相位 (°)'});
+    colors = parula(6+2); colors = colors(2:end-1, :);
 
     % 处理输入参数默认值
     if nargin < 5, refresh = false; end
@@ -52,6 +57,7 @@ function [] = plot_stages(wave, ytype, events, xnoise, refresh)
         error('argument "wave" should be "p" or "s"');
     end
 
+    if strcmp(ytype, 'amp'), ytype = 'amplitude'; end
     if ytype_id_mapper.isKey(ytype)
         ytype_id = ytype_id_mapper(ytype);
     else
@@ -59,6 +65,7 @@ function [] = plot_stages(wave, ytype, events, xnoise, refresh)
         ytype_id = 1;
     end
     ytype_name = ytype_name_mapper(ytype_id);
+    ytype_name_zh = ytype_name_mapper_zh(ytype_id);
 
     if ~iscell(events)
         events = num2cell(events);
@@ -87,13 +94,15 @@ function [] = plot_stages(wave, ytype, events, xnoise, refresh)
     end
     all_events = sort(all_events);
 
-    % 每次采集时，空气枪震源的位置不可能精确固定，因此为接收点坐标添加一个随机白噪声(3m)
-    noise = randn(size(xrecvs)) * xnoise;
-    noise_mapper = containers.Map(xrecvs, noise);
+    % 每次采集时，空气枪震源的位置不可能精确固定，因此为接收点坐标添加一个随机白噪声(3m)作为定位误差
+    % 每个航次分配一致的误差，即该航次中的所有的事件具有相同的误差，但不同航次具有不同的误差
+    noise = randn(numel(xrecvs), numel(data_s)) * xnoise;
+    noise_mapper = containers.Map(xrecvs, 1:numel(xrecvs));
 
     for ii = 1:numel(all_events)
         event_id = all_events{ii};
-        fig = figure();
+        fig = figure('NumberTitle', 'off', 'Name', sprintf('%s-event%s(%s)', ytype,event_id, wave));
+        ax = axes(fig);
         hold on;
         for jj = 1:numel(data_s)
             data = data_s{jj};
@@ -104,9 +113,19 @@ function [] = plot_stages(wave, ytype, events, xnoise, refresh)
 
             offset = data(:, 1);
             ydata = data(:, ytype_id+1);
+
+            % 当地层比较复杂时，同一个事件的多条射线可能通过不同的路径先后到达同一个接收器。
+            % 绘制走时图像时只考虑第一个到达的射线，但为了在绘图时不遗漏多个事件的信息，将剩余事件概括在一个 error bar 内？
+            % 绘图时为了避免杂乱，只考虑第一个到达的事件，将后续事件忽略
+            [offset, idx, ~] = unique(offset);
+            ydata = ydata(idx);
+
             % 为 offset 添加白噪声
-            selected_noise = cell2mat(values(noise_mapper, num2cell(offset)));
-            ydata = interp1(offset, ydata, offset + selected_noise);
+            if xnoise > 0
+                noise_idx = cell2mat(values(noise_mapper, num2cell(offset)));
+                ydata = interp1(offset, ydata, offset + noise(noise_idx, jj));
+            end
+
             % offset 扣除炮点 X 坐标
             offset = offset - xshot_s{jj};
 
@@ -115,24 +134,23 @@ function [] = plot_stages(wave, ytype, events, xnoise, refresh)
                 ydata = ydata / pi * 180;
             end
             left_idx = (offset < 0);
-            curve_left = plot(offset(left_idx), ydata(left_idx), 'k-', 'LineWidth', 1, 'DisplayName', sprintf('T%1d', jj));
-            curve_right = plot(offset(~left_idx), ydata(~left_idx), 'k-', 'LineWidth', 1, 'HandleVisibility','off');
-            curve_left.Color(4) = jj/numel(data_s);
-            curve_right.Color(4) = jj/numel(data_s);
+            curve_left = plot(offset(left_idx), ydata(left_idx), 'LineWidth', 1, 'Color', colors(jj,:), 'DisplayName', sprintf('T%1d', jj-1));
+            curve_right = plot(offset(~left_idx), ydata(~left_idx), 'LineWidth', 1, 'Color', colors(jj,:), 'HandleVisibility','off');
         end
         hold off;
         grid on;
         box on;
-        title(sprintf('Event %s', event_id));
+        % title(sprintf('Event %s', event_id));
+        title(sprintf('%s-%s', wave_mapper_zh(wave), event_id));
         % 绘制走时，反转 Y 轴
         if contains(ytype_name, 'time', 'IgnoreCase', true)
-            set(gca, 'YDir', 'reverse');
+            set(ax, 'YDir', 'reverse');
         end
         if contains(ytype_name, 'phase', 'IgnoreCase', true)
             ylim([0, 360]);
         end
-        xlabel('Offset (km)');
-        ylabel(ytype_name);
+        xlabel('偏移距 (km)');
+        ylabel(ytype_name_zh);
         legend('show');
     end
 end
@@ -145,12 +163,8 @@ function [data, xrecvs, xshot] = load_sectout(filepath, refresh, savemat)
 % refresh: 若为 true，则强制从 sect.out 文件中解析，不使用 .mat 文件。默认为 true。
 % savemat: 若为 true，则将解析好的数据保存为 .mat 文件，方便下次直接加载。默认为 true。
 
-    if nargin < 3
-        savemat = true;
-        if nargin < 2
-            refresh = true;
-        end
-    end
+    if nargin < 3, savemat = true; end
+    if nargin < 2, refresh = true; end
 
     matfile = [filepath, '.mat'];
     if refresh || ~exist(matfile, 'file')
