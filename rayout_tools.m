@@ -1,11 +1,198 @@
 % 解析 rayinvr/rayinvr 生成的 r1_ext.out 文件（射线追踪记录）。
 % 进行射线照明分析。
 
-filepath = 'D:\\Archive\\Research\\rayinvr\\rayinvr-data\\obc\\stage_1_100\\p\\r1_ext.out';
-% filepath = 'D:\\Archive\\Research\\rayinvr\\rayinvr-data\\obc\\stage_0_005\\p\\r1_ext.out';
-[data] = load_rayout(filepath, true);
-plot_coverage(data, {}, 2, 0.025);
+global path_template stages;
+path_template = 'D:\\Archive\\Research\\rayinvr\\rayinvr-data\\obc\\%s\\%s\\';
+stages = {'stage_1_100', 'stage_0_100', 'stage_0_050', 'stage_0_030', 'stage_0_015', 'stage_0_005'};
 
+
+
+% run_rayinvr_fortran({'p', 's'});
+% batch_backup_mat('r1_ext.out', 'r1_ext.10km_obc12d5m_recv12d5m.out');
+plot_multi_lighting_analyze('p', 'r1_ext.10km_obc12d5m_recv12d5m.out', false, 'survey_len', 5, 'bin_width', 0.001);
+
+
+
+function [fig] = plot_multi_lighting_analyze(wave, filename, refresh, varargin)
+% 绘制各开采阶段的照明分析图
+
+    global path_template stages;
+
+    if nargin < 3, refresh = true; end
+    if nargin < 2, filename = 'r1_ext.out'; end
+    if nargin < 1, wave = 'p'; end
+
+    opts = struct('survey_len', 10, 'bin_width', 0.025);
+    custom_opts = struct(varargin{:});
+    names = fieldnames(custom_opts);
+    for ii = 1:numel(names)
+        opts.(names{ii}) = custom_opts.(names{ii});
+    end
+
+    layer_depth = [1290, 1410, 1444, 1468];
+
+    mid_point = 5;
+    [xmin, xmax] = deal(mid_point - opts.survey_len/2, mid_point + opts.survey_len/2);
+    bin_edges = xmin:opts.bin_width:xmax;
+    bin_centers = (bin_edges(1:end-1) + bin_edges(2:end)) / 2;
+
+    tmp = strsplit(filename, '.');
+    title_str_en = tmp{end-1};
+    title_mapper = containers.Map(...
+        {'10km_obc25m_recv25m', '10km_obc12d5m_recv25m', '10km_obc25m_recv12d5m', '10km_obc12d5m_recv12d5m'}, ...
+        {'OBC节点间距25m，炮检距25m', 'OBC节点间距12.5m，炮检距25m', 'OBC节点间距25m，炮检距12.5m', 'OBC节点间距12.5m，炮检距12.5m'});
+    if title_mapper.isKey(title_str_en)
+        title_str_zh = title_mapper(title_str_en);
+    else
+        title_str_zh = '未知文件名';
+    end
+
+    figname = sprintf('LightingAnalyze-%s', title_str_en);
+    fig = figure('Position', [20, 50, 900, 600], 'NumberTitle', 'off', 'Name', figname);
+    % % size with title
+    % ha = tight_subplot(3, 2, [.085 .08], [.07 .06], [.07 .10]);
+    % size without title
+    ha = tight_subplot(3, 2, [.085 .08], [.07 .02], [.07 .10]);
+    for ii = 1:numel(stages)
+        filepath = fullfile(sprintf(path_template, stages{ii}, wave), filename);
+        data = load_rayout(filepath, refresh);
+        [event_ids, xturns, ~] = get_ray_coverage(data, [xmin, xmax]);
+
+        ax = ha(ii);
+        % ax = subplot_tight(3, 2, ii, [0.08, 0.05]);
+        axes(ax);
+
+        hold on;
+        for jj = 1:numel(event_ids)
+            event = event_ids{jj};
+            xturn = xturns{jj};
+
+            % 按照小分区统计射线覆盖次数
+            [counts, ~] = histcounts(xturn, bin_edges);
+            % % 使用滑动平均对数据做平滑处理
+            % [counts, ~] = smoothdata(counts, 'movmean', 1);
+
+            x = bin_centers - mid_point;
+            layer_no = int32(str2num(event));
+            y = layer_depth(layer_no-1:layer_no);
+            [xx, yy] = meshgrid(x, y);
+            zz = repmat(counts, 2, 1);
+            contourf(xx, yy, zz, 100, 'LineStyle', 'none');
+        end
+        % for d = layer_depth(2:end-1)
+        %     plot([xmin, xmax], [d, d], 'Color', 'k', 'LineStyle', '--');
+        % end
+        hold off;
+        % title(sprintf('T%d', ii-1), 'FontName', 'Microsoft Yahei', 'FontSize', 10);
+        text(-1.45, 1305, sprintf('T%d', ii-1), 'Color', [1,1,1], 'FontName', 'Microsoft Yahei', 'FontSize', 10);
+        xlabel('偏移距 (km)', 'FontName', 'Microsoft Yahei', 'FontSize', 10);
+        ylabel('深度 (m)', 'FontName', 'Microsoft Yahei', 'FontSize', 10);
+        set(ax, 'YDir', 'reverse');
+        yticks(layer_depth);
+        % xlim([mid_point, xmax] - mid_point);
+        xlim([-1.5, 1.5]);
+        caxis([0, 20]);
+    end
+    % colormap(jet);
+    h = colorbar();
+    % % size without title
+    % set(h, 'Position', [0.92,0.07,0.03,0.87]);
+    % size with title
+    set(h, 'Position', [0.92,0.07,0.03,0.91]);
+    ylabel(h, '射线密度 (次/m)', 'FontName', 'Microsoft Yahei', 'FontSize', 10);
+    % mtit(fig, title_str_zh, 'xoff', 0, 'yoff', 0.02, 'Interpreter','none', 'FontName', 'Microsoft Yahei', 'FontSize', 10);
+end
+
+
+function [events, xturns, xrecvs] = get_ray_coverage(rayout_data, xrecv_lim, centered)
+% 从 ray.out 数据（由 load_rayout 获得的 Table 格式）中取出按事件分组的 xturn 值，用于计算射线覆盖密度。
+% 数据中的接收点坐标遍布整个模型，但在统计时，可以用 xrecv_lim 限定只统计一定范围内的接收点。
+% 如果 centered 为 true，则数据在返回之前需要扣除中心点坐标，使得正负对称。默认为 false，即不对数据做任何修改。
+% 返回值：
+% events: 一个 cell，包含所有不同的事件编号，例如 {'2.2', '3.2'}
+% xturns: 一个与 events 相同长度的 cell，依次是每个事件所对应的所有射线的转折点的 X 坐标
+% xrecvs: 一个与 events 相同长度的 cell，依次是每个事件所对应的所有射线的到达点的 X 坐标
+
+    if nargin < 3 centered = false; end
+
+    [G, events] = findgroups(rayout_data.code);
+    xturns = splitapply(@(x){x}, rayout_data.xturn, G);
+    xrecvs = splitapply(@(x){x}, rayout_data.xrecv, G);
+
+    xmin = xrecv_lim(1);
+    xmax = xrecv_lim(2);
+
+    for ii = 1:numel(xrecvs)
+        mask = (xrecvs{ii} >= xmin) & (xrecvs{ii} <= xmax);
+        xrecvs{ii} = xrecvs{ii}(mask);
+        xturns{ii} = xturns{ii}(mask);
+    end
+
+    if centered
+        mid_point = (xmin + xmax) / 2;
+        xrecvs = cellfun(@(arr) arr-mid_point, xrecvs, 'UniformOutput', false);
+        xturns = cellfun(@(arr) arr-mid_point, xturns, 'UniformOutput', false);
+    end
+end
+
+
+function run_rayinvr_fortran(waves)
+% 重新生成全部 r1_ext.out 文件，其实是重新调用 rayinvr/rayinvr 模块
+    global path_template stages;
+
+    if nargin < 1
+        waves = {'p', 's'};
+    end
+
+    for ii = 1:numel(stages)
+        for jj = 1:numel(waves)
+            path = sprintf(path_template, stages{ii}, waves{jj});
+            fprintf('================================================================================\n');
+            fprintf(">> rayinvr_fortran('rayinvr', '%s')\n", path);
+            rayinvr_fortran('rayinvr', path);
+        end
+    end
+end
+
+
+function batch_backup_mat(from_name, to_name, copy, overwrite)
+% 批量备份已经生成的 r1_ext.out 数据。
+% 当修改模型之后，如果全部重新生成一遍 r1_ext.out 速度较慢，因此设计该函数批量备份与还原 r1_ext.out 文件，再次使用时不必重新生成，方便多个模型之间做对比。
+% 默认为拷贝备份，如将 copy 参数设为 false，则为重命名备份。
+
+    global path_template stages;
+
+    if nargin < 4, overwrite = false; end
+    if nargin < 3, copy = true; end
+
+    if strcmp(from_name, to_name)
+        error('from_name can not be same with to_name');
+    end
+
+    waves = {'p', 's'};
+    for ii = 1:numel(stages)
+        for jj = 1:numel(waves)
+            base_path = sprintf(path_template, stages{ii}, waves{jj});
+
+            if ~overwrite && exist(fullfile(base_path, to_name), 'file')
+                answer = questdlg(sprintf('文件名 %s 已存在，是否覆盖？', to_name), '警告', '是', '取消操作', '取消操作');
+                overwrite = strcmp(answer, '是');
+                if ~overwrite
+                    fprintf('Operation canceled!\n');
+                    return;
+                end
+            end
+
+            if copy
+                fprintf('%s : %s |-> %s\n', base_path, from_name, to_name);
+                copyfile(fullfile(base_path, from_name), fullfile(base_path, to_name));
+            else
+                fprintf('%s : %s -> %s\n', base_path, from_name, to_name);
+                movefile(fullfile(base_path, from_name), fullfile(base_path, to_name));
+            end
+        end
+    end
+end
 
 
 function [data] = parse_rayout(filepath)
@@ -41,75 +228,4 @@ function [data] = load_rayout(filepath, refresh, savemat)
     if savemat && ~is_from_mat
         save(matfile, 'data');
     end
-end
-
-
-function [events, xturns, xrecvs] = get_ray_coverage(rayout_data)
-% 从 ray.out 数据（由 load_rayout 获得的 Table 格式）中取出按事件分组的 xturn 值，用于计算射线覆盖密度
-% 返回值：
-% events: 一个 cell，包含所有不同的事件编号，例如 {'2.2', '3.2'}
-% xturns: 一个与 events 相同长度的 cell，依次是每个事件所对应的所有射线的转折点的 X 坐标
-% xrecvs: 一个与 events 相同长度的 cell，依次是每个事件所对应的所有射线的到达点的 X 坐标
-
-    [G, events] = findgroups(rayout_data.code);
-    xturns = splitapply(@(x){x}, rayout_data.xturn, G);
-    xrecvs = splitapply(@(x){x}, rayout_data.xrecv, G);
-end
-
-
-function plot_coverage(rayout_data, events, survey_len, bin_width)
-% 画图展示射线覆盖情况
-% 参数：
-% events: 一个 cell，限定要绘制的事件代号，如 {2.2, 3.2}。
-% survey_len: 限定有效测线长度，测线范围之外的接收点不予统计，默认为 20。
-% bin_width: 用于统计的单位线元长度，默认为 0.025km。
-
-    if nargin < 4, bin_width = 0.025; end
-    if nargin < 3, survey_len = 20; end
-    if nargin < 2, events = {}; end
-
-    mid_point = 10;
-
-    if ~isempty(events) && ~ischar(events{1})
-        events = cellfun(@(x) num2str(x), events, 'UniformOutput', false);
-    end
-
-    [xmin, xmax] = deal(mid_point - survey_len/2, mid_point + survey_len/2);
-    bin_edges = xmin:bin_width:xmax;
-    bin_centers = (bin_edges(1:end-1) + bin_edges(2:end)) / 2;
-    [event_ids, xturns, xrecvs] = get_ray_coverage(rayout_data);
-
-
-    fig = figure('Position', [20, 50, 480, 360]);
-    ax = axes(fig, 'Position', [0.1,0.12,0.85,0.83]);
-    hold on;
-    grid on;
-    title(sprintf('Survey Length = %.1fkm', survey_len));
-    xlabel('Offset (km)');
-    ylabel('Frequency');
-    for ii = 1:numel(event_ids)
-        event = event_ids{ii};
-        xturn = xturns{ii};
-        xrecv = xrecvs{ii};
-
-        if ~isempty(events) && isempty(find(strcmp(events, event)))
-            continue;
-        end
-
-        mask = (xrecv >= xmin) & (xrecv <= xmax);
-        xturn = xturn(mask);
-
-        % h = histogram(xturn, bin_edges, 'DisplayStyle', 'stairs');
-        [counts, ~] = histcounts(xturn, bin_edges);
-        plot(bin_centers, counts, 'LineWidth', 1, 'DisplayName', sprintf('Event %s', event));
-    end
-    hleg = legend('show', 'AutoUpdate', 'off');
-    % set(hleg, 'FontSize', 8, 'Location', 'northeast');
-
-    % % obs_pos = 9.5:0.025:10.5;
-    % obs_pos = 9.0:0.050:11.0;
-    % plot(obs_pos, zeros(size(obs_pos)), 'Color', 'k', 'Marker', 'o', 'MarkerSize', 3);
-
-    hold off;
-
 end

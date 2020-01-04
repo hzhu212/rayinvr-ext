@@ -1,14 +1,14 @@
 % 生成模拟 tx.in 数据，其中走时列无效，只是让 rayinvr 程序能够跑起来而已
 
 % receiver parameters
-[xmin, xmax] = deal(0, 20);
+[xmin, xmax] = deal(0, 10);
 xinc = 0.025;
 
 % shot parameters
-xshots = [10.000];
-% xshots = [9.500, 10.000, 10.500];
-% xshots = 9:0.025:11;
-% xshots = 10 + (0:20)*0.0001;
+% xshots = [5.000];
+% xshots = [4.500, 5.000, 5.500];
+xshots = 5 + (-20:20)*0.0125;
+% xshots = 5 + (0:20)*0.0001;
 
 % output parameters
 line_format = '%10.4f%10.4f%10.4f%10d\n';

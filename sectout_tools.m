@@ -1,23 +1,25 @@
 % 解析和处理 rayinvr/tramp 生成的 sect.out 文件（模拟事件和振幅）。
 % 进行走时、振幅、相位分析。
 
-% p = 'D:\Archive\Research\rayinvr\rayinvr-data\obc\stage_1_100\p\sect_ext.out';
-% [data, xshot] = parse_sectout(p);
-
-plot_stages('p', 'time', {2.2, 3.2, 4.2}, 0.000, false);
-
-% refresh_sectout({'p'});
+global path_template stages;
+path_template = 'D:\\Archive\\Research\\rayinvr\\rayinvr-data\\obc\\%s\\%s\\';
+stages = {'stage_1_100', 'stage_0_100', 'stage_0_050', 'stage_0_030', 'stage_0_015', 'stage_0_005'};
 
 
-function [] = refresh_sectout(waves)
-% 重新生成全部 sect.out 文件，其实是重新调用 rayinvr/tramp 模块
+
+% run_tramp_fortran({'p', 's'});
+plot_multi_wave_anylyze('p', 'amp', {3.2, 4.2}, 'sectionAt', [], 'xnoise', 0.003125, 'refresh', true);
+
+
+
+function run_tramp_fortran(waves)
+% 重新生成全部 sect_ext.out 文件，其实是重新调用 rayinvr/tramp 模块
+    global path_template stages;
 
     if nargin < 1
         waves = {'p', 's'};
     end
 
-    path_template = 'D:\\Archive\\Research\\rayinvr\\rayinvr-data\\obc\\%s\\%s\\';
-    stages = {'stage_1_100', 'stage_0_100', 'stage_0_050', 'stage_0_030', 'stage_0_015', 'stage_0_005'};
     for ii = 1:numel(stages)
         for jj = 1:numel(waves)
             path = sprintf(path_template, stages{ii}, waves{jj});
@@ -29,15 +31,19 @@ function [] = refresh_sectout(waves)
 end
 
 
-
-function [] = plot_stages(wave, ytype, events, xnoise, refresh)
-% 绘制多阶段的 sect.out 数据
+function [] = plot_multi_wave_anylyze(wave, ytype, events, varargin)
+% 绘制多阶段的走时分析/振幅分析/相位分析图
 %
+% 位置参数：
 % wave: 'p' 或 's'，绘制纵波事件还是横波事件，默认为 'p'。
 % ytype: 指定绘制数据的类别，包括走时(time)、振幅(amplitude)、相位(phase)。
 % events: 一个 cell，限定要绘制的事件代号，如 {2.2, 3.2}。
+% 可选参数：
 % xnoise: 为接收点的 X 坐标添加的高斯随机噪音的标准差，单位为 km。默认为 0.003，即 3m。
 % refresh: 载入 sect.out 数据时强制重新解析原始数据，否则载入缓存的数据。
+% sectionAt: 在哪些 offset 处创建纵向切片图。默认不创建切片图。
+
+    global path_template stages;
 
     wave_mapper = containers.Map({'p', 's'}, {'P wave', 'S wave'});
     wave_mapper_zh = containers.Map({'p', 's'}, {'纵波', '横波'});
@@ -47,11 +53,16 @@ function [] = plot_stages(wave, ytype, events, xnoise, refresh)
     colors = parula(6+2); colors = colors(2:end-1, :);
 
     % 处理输入参数默认值
-    if nargin < 5, refresh = false; end
-    if nargin < 4, xnoise = 0.003; end
     if nargin < 3, events = {}; end
     if nargin < 2, ytype = 'time'; end
     if nargin < 1, wave = 'p'; end
+
+    opts = struct('xnoise', 0, 'refresh', true, 'sectionAt', []);
+    custom_opts = struct(varargin{:});
+    names = fieldnames(custom_opts);
+    for ii = 1:numel(names)
+        opts.(names{ii}) = custom_opts.(names{ii});
+    end
 
     if ~any(strcmp({'p', 's'}, wave))
         error('argument "wave" should be "p" or "s"');
@@ -75,14 +86,12 @@ function [] = plot_stages(wave, ytype, events, xnoise, refresh)
     end
 
     % load data
-    path_template = 'D:\\Archive\\Research\\rayinvr\\rayinvr-data\\obc\\%s\\%s\\sect_ext.out';
-    stages = {'stage_1_100', 'stage_0_100', 'stage_0_050', 'stage_0_030', 'stage_0_015', 'stage_0_005'};
     data_s = {};
     xshot_s = {};
     for ii = 1:numel(stages)
         stage = stages{ii};
-        path = sprintf(path_template, stage, wave);
-        [data, xrecvs, xshot] = load_sectout(path, refresh);
+        path = sprintf([path_template, 'sect_ext.out'], stage, wave);
+        [data, xrecvs, xshot] = load_sectout(path, opts.refresh);
         data_s{end+1} = data;
         xshot_s{end+1} = xshot;
     end
@@ -96,10 +105,14 @@ function [] = plot_stages(wave, ytype, events, xnoise, refresh)
 
     % 每次采集时，空气枪震源的位置不可能精确固定，因此为接收点坐标添加一个随机白噪声(3m)作为定位误差
     % 每个航次分配一致的误差，即该航次中的所有的事件具有相同的误差，但不同航次具有不同的误差
-    noise = randn(numel(xrecvs), numel(data_s)) * xnoise;
+    noise = randn(numel(xrecvs), numel(data_s)) * opts.xnoise;
     noise_mapper = containers.Map(xrecvs, 1:numel(xrecvs));
 
     for ii = 1:numel(all_events)
+        if ~isempty(opts.sectionAt)
+            sectionys = cell(size(opts.sectionAt));
+        end
+
         event_id = all_events{ii};
         fig = figure('NumberTitle', 'off', 'Name', sprintf('%s-event%s(%s)', ytype,event_id, wave));
         ax = axes(fig);
@@ -121,7 +134,7 @@ function [] = plot_stages(wave, ytype, events, xnoise, refresh)
             ydata = ydata(idx);
 
             % 为 offset 添加白噪声
-            if xnoise > 0
+            if opts.xnoise > 0
                 noise_idx = cell2mat(values(noise_mapper, num2cell(offset)));
                 ydata = interp1(offset, ydata, offset + noise(noise_idx, jj));
             end
@@ -133,9 +146,21 @@ function [] = plot_stages(wave, ytype, events, xnoise, refresh)
             if contains(ytype_name, 'phase', 'IgnoreCase', true)
                 ydata = ydata / pi * 180;
             end
+
+            % 绘制横向图
             left_idx = (offset < 0);
             curve_left = plot(offset(left_idx), ydata(left_idx), 'LineWidth', 1, 'Color', colors(jj,:), 'DisplayName', sprintf('T%1d', jj-1));
             curve_right = plot(offset(~left_idx), ydata(~left_idx), 'LineWidth', 1, 'Color', colors(jj,:), 'HandleVisibility','off');
+
+            % 收集纵向切片数据，用于绘制纵向剖面图
+            for kk = 1:numel(opts.sectionAt)
+                ydata_idx = find(abs(offset-opts.sectionAt(kk))<1e-4, 1);
+                if ~isempty(ydata_idx)
+                    sectionys{kk}(jj) = ydata(ydata_idx);
+                else
+                    sectionys{kk}(jj) = NaN;
+                end
+            end
         end
         hold off;
         grid on;
@@ -152,6 +177,33 @@ function [] = plot_stages(wave, ytype, events, xnoise, refresh)
         xlabel('偏移距 (km)');
         ylabel(ytype_name_zh);
         legend('show');
+
+        % 绘制纵向剖面图
+        if ~isempty(opts.sectionAt)
+            fig2 = figure('NumberTitle', 'off', 'Name', sprintf('%s-event%s(%s)-section', ytype,event_id,wave));
+            ax2 = axes(fig2);
+            hold on;
+            for kk = 1:numel(opts.sectionAt)
+                % 绝对量折线图
+                plot(ax2, sectionys{kk}, '-o', 'DisplayName', sprintf('偏移距=%.2fkm', opts.sectionAt(kk)));
+                % % 差异走时stem图
+                % stem(ax2, [0, diff(sectionys{kk})]*1e3, 'LineWidth', 1, 'DisplayName', sprintf('偏移距=%.2fkm', opts.sectionAt(kk)));
+                % % 相对差异振幅stem图
+                % y = sectionys{kk}; stem(ax2, [0, diff(y)./y(1:end-1)]*100, 'LineWidth', 1, 'DisplayName', sprintf('偏移距=%.2fkm', opts.sectionAt(kk)));
+            end
+            hold off;
+            box on;
+            grid on;
+            hl = legend(ax2, 'show');
+            title(ax2, sprintf('%s-%s', wave_mapper_zh(wave), event_id));
+            xlabel(ax2, '时间点');
+            ylabel(ax2, ytype_name_zh); if strcmp(ytype_name, 'Time'), set(ax2, 'YDir', 'reverse'); end
+            % ylabel(ax2, ['差异', replace(ytype_name_zh, '(s)', '(ms)')]);
+            % ylabel(ax2, ['相对差异', ytype_name_zh, ' (%)']); set(hl, 'Location', 'southwest');
+            xlim([1, 6]);
+            xticks(1:6);
+            xticklabels(cellfun(@(x) sprintf('T%d', x-1), num2cell(xticks), 'UniformOutput', false));
+        end
     end
 end
 
@@ -189,22 +241,20 @@ function [data, xrecvs, xshot] = parse_sectout(filepath)
 % 解析 sect.out 文件，返回数据体（containers.Map 类型）、接收点 X 坐标数组、炮点的 X 坐标
 %
 % 文件内容样例：
-%    10.000        -1
-%     0.000         0
-%     0.025         0
-%     0.050         2
-% 0.67330E+01 0.40038E-01 0.30656E+01 2.2
-% 0.59158E+01 0.74288E-06 0.00000E+00 4.2
-%     0.075         2
-% 0.67166E+01 0.40041E-01 0.30652E+01 2.2
-% 0.59026E+01 0.74307E-06 0.00000E+00 4.2
-%     0.100         2
-% 0.67003E+01 0.40048E-01 0.30648E+01 2.2
-% 0.58895E+01 0.74326E-06 0.00000E+00 4.2
-%     0.125         3
-% 0.66840E+01 0.40056E-01 0.30644E+01 2.2
-% 0.58613E+01 0.38832E-03 0.31416E+01 3.2
-% 0.58764E+01 0.74345E-06 0.00000E+00 4.2
+%    5.0000        -1
+%    0.0000         0
+%    0.0125         3
+% 0.34946E+01 0.16198E+00 0.28085E+01 2.2
+% 0.32571E+01 0.38330E-02 0.31416E+01 3.2
+% 0.32722E+01 0.17297E-04 0.00000E+00 4.2
+%    0.0250         3
+% 0.34866E+01 0.16206E+00 0.28068E+01 2.2
+% 0.32506E+01 0.38341E-02 0.31416E+01 3.2
+% 0.32656E+01 0.17309E-04 0.00000E+00 4.2
+%    0.0375         3
+% 0.34786E+01 0.16219E+00 0.28051E+01 2.2
+% 0.32440E+01 0.38359E-02 0.31416E+01 3.2
+% 0.32591E+01 0.17327E-04 0.00000E+00 4.2
 %
 % 格式含义：
 % 1行炮点：<X 坐标>    <-1>

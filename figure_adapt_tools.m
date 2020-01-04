@@ -1,7 +1,8 @@
 % 热调整 MATLAB 绘制的图像，修改尺寸、坐标轴范围等，供论文使用。
 
-adapt_ray_tracing();
-% adapt_wave_analyze();
+% adapt_ray_tracing();
+% adapt_ray_tracing3_2();
+adapt_wave_analyze('quarter');
 % adapt_critical_offset_analyze();
 
 
@@ -25,6 +26,10 @@ function adapt_wave_analyze(size_descriptor)
         'amplitude-event4.2(s)';
         'time-event2.3(p)';
         'amplitude-event2.3(p)';
+
+        'time-event3.2(p)-section';
+        'time-event4.2(p)-section';
+        'amplitude-event4.2(p)-section';
     };
     xlimc = {...
         [-1, 1]*0.5;
@@ -33,22 +38,25 @@ function adapt_wave_analyze(size_descriptor)
         [-1, 1]*0.5;
         [-1, 1]*0.5;
         [-1, 1]*0.5;
-        [-1, 1];
-        [-1, 1];
-        [-1, 1];
-        [-1, 1];
-        [-1, 1];
-        [-1, 1];
+        [-1, 1]*0.5;
+        [-1, 1]*0.5;
+        [-1, 1]*0.5;
+        [-1, 1]*0.5;
+        [-1, 1]*0.5;
+        [-1, 1]*0.5;
         [2.6, 2.7];
         [2.5, 3];
+        [];
+        [];
+        [];
     };
     ylimc = {...
         [1.02, 1.08];
         [1.055, 1.12];
         [1.08, 1.15];
         [1.4, 1.46];
-        [1.465, 1.55];
-        [1.525, 1.62];
+        [1.455, 1.55];
+        [1.52, 1.62];
         [0, 0.35];
         [0, 0.18];
         [0, 0.04];
@@ -57,27 +65,54 @@ function adapt_wave_analyze(size_descriptor)
         [0, 1.8e-5];
         [2, 2.065];
         [0.5, 1];
+        [1.06, 1.09];
+        [1.085, 1.12];
+        [0, 0.04];
     };
     ytickc = {...
         []; []; []; []; []; []; []; [];
         0:0.01:0.04;
         []; []; []; []; [];
+        1.06:0.01:1.09;
+        1.08:0.01:1.12;
+        [];
     };
 
     all_figures = findobj('Type', 'figure');
     for ii = 1:numel(all_figures)
+        % 找到目标图片
         fig = all_figures(ii);
         figname = get(fig, 'Name');
+        if ~(startsWith(figname, 'time-') || startsWith(figname, 'amplitude-'))
+            continue;
+        end
+
+        % 修整图片
+        fun_adapt_size(fig, size_descriptor);
+        fun_adapt_font(fig);
+        ax = get(fig, 'CurrentAxes');
+
+        % 生成中文标题
+        tmp = strsplit(figname, '-');
+        event_desc = tmp{2};
+        wave = event_desc(end-1);
+        event_id = event_desc(end-5:end-3);
+        new_title_str = fun_get_event_description(wave, event_id);
+        set(get(ax, 'Title'), 'String', new_title_str);
+
+        % 需要特殊修整的图片
         idx = find(strcmp(event_names, figname));
         if isempty(idx)
             continue;
         end
 
-        fun_adapt_size(fig, size_descriptor);
-        fun_adapt_font(fig);
-        ax = get(fig, 'CurrentAxes');
-        xlim(ax, xlimc{idx});
-        ylim(ax, ylimc{idx});
+        % 修整坐标轴范围
+        if ~isempty(xlimc{idx})
+            xlim(ax, xlimc{idx});
+        end
+        if ~isempty(ylimc{idx})
+            ylim(ax, ylimc{idx});
+        end
         if ~isempty(ytickc{idx})
             yticks(ax, ytickc{idx});
         end
@@ -120,9 +155,9 @@ function adapt_ray_tracing()
     set(get(ax, 'XLabel'), 'String', '偏移距 (km)');
     set(get(ax, 'YLabel'), 'String', '深度 (km)');
 
-    xlim(ax, [0, 20]);
-    xticks(ax, 0:2:20);
-    xticklabels(ax, cellfun(@num2str, num2cell(xticks(ax)-10), 'UniformOutput', false));
+    xlim(ax, [0, 10]);
+    xticks(ax, 0:10);
+    xticklabels(ax, cellfun(@num2str, num2cell(xticks(ax)-5), 'UniformOutput', false));
 
     ylim(ax, [0, 1.5]);
     yticks(ax, 0:0.3:1.5);
@@ -139,13 +174,34 @@ function adapt_ray_tracing()
     set(get(ax2, 'XLabel'), 'String', '偏移距 (m)');
     set(get(ax2, 'YLabel'), 'String', '深度 (m)');
 
-    xlim(ax2, [9.5, 10.5]);
-    xticks(ax2, [9.5:0.1:10.5]);
-    xticklabels(ax2, cellfun(@num2str, num2cell((xticks(ax2)-10)*1e3), 'UniformOutput', false));
+    xlim(ax2, [4.5, 5.5]);
+    xticks(ax2, 4.5:0.1:5.5);
+    xticklabels(ax2, cellfun(@num2str, num2cell((xticks(ax2)-5)*1e3), 'UniformOutput', false));
 
     ylim(ax2, [1.25, 1.49]);
     yticks(ax2, [1.290, 1.410, 1.444, 1.468]);
     yticklabels(ax2, cellfun(@num2str, {1290, 1410, 1444, 1468}, 'UniformOutput', false));
+end
+
+
+function adapt_ray_tracing3_2()
+% 调整由 rayinvr-matlab 生成的射线追踪图，演示照明分析
+
+    % 原图
+    fig = gcf();
+    ax = get(fig, 'CurrentAxes');
+    fun_adapt_size(fig, 'full', 'figsize', [700, 400], 'axpos', [0.08,0.04,0.90,0.85]);
+    fun_adapt_font(fig);
+
+    legend(ax, 'off');
+    set(get(ax, 'XLabel'), 'String', '偏移距 (km)');
+    set(get(ax, 'YLabel'), 'String', '深度 (km)');
+
+    xlim(ax, [4.5, 5.5]);
+    xticks(ax, 4.5:0.1:5.5);
+    xticklabels(ax, cellfun(@num2str, num2cell(xticks(ax)-5), 'UniformOutput', false));
+
+    ylim(ax, [1.26, 1.47]);
 end
 
 
@@ -162,10 +218,12 @@ function fun_adapt_size(fig, size_descriptor, varargin)
             axpos = [0.08, 0.1, 0.89, 0.86];
         case 'half'
             figsize = [700, 300];
-            axpos = [0.08, 0.145, 0.89, 0.81];
+            axpos = [0.08, 0.14, 0.89, 0.80];
         case 'quarter'
-            figsize = [500, 350];
-            axpos = [0.11, 0.125, 0.85, 0.825];
+            % figsize = [500, 350];
+            % axpos = [0.11, 0.125, 0.85, 0.825];
+            figsize = [420, 300];
+            axpos = [0.125, 0.14, 0.85, 0.80];
         otherwise
             error('Invalid size descriptor, should be one of "full", "half" or "quarter"');
     end
@@ -196,9 +254,10 @@ function fun_adapt_font(fig)
     title_obj = get(ax, 'Title');
     xlabel_obj = get(ax, 'XLabel');
     ylabel_obj = get(ax, 'YLabel');
+    legend_obj = get(ax, 'Legend');
 
     if ~isempty(title_obj)
-        set(title_obj, 'FontName', 'Microsoft Yahei', 'FontSize', 9);
+        set(title_obj, 'FontName', 'Microsoft Yahei', 'FontSize', 10);
     end
     if ~isempty(xlabel_obj)
         set(xlabel_obj, 'FontName', 'Microsoft Yahei', 'FontSize', 10);
@@ -206,8 +265,26 @@ function fun_adapt_font(fig)
     if ~isempty(ylabel_obj)
         set(ylabel_obj, 'FontName', 'Microsoft Yahei', 'FontSize', 10);
     end
+    if ~isempty(legend_obj)
+        set(legend_obj, 'FontName', 'Microsoft Yahei', 'FontSize', 9);
+    end
 end
 
 
+function [desc] = fun_get_event_description(wave, event_id)
+% 生成某个地震事件的中文描述，可用做图片标题等
 
+    wave_mapper = containers.Map({'p', 's'}, {'纵波', '横波'});
+    event_mapper = containers.Map(...
+        {'2.2'; '3.2'; '4.2'; '2.3'},...
+        {'储层顶部反射'; '储层底部反射'; '含气层底部反射'; '储层顶部滑行'});
 
+    if ~wave_mapper.isKey(wave)
+        error('Invalid argument wave, should be one of ["%s"]', strjoin(wave_mapper.keys(), '", "'));
+    end
+    if ~event_mapper.isKey(event_id)
+        error('Invalid argument wave, should be one of ["%s"]', strjoin(event_mapper.keys(), '", "'));
+    end
+
+    desc = sprintf('%s-%s(%s)', wave_mapper(wave), event_id, event_mapper(event_id));
+end
