@@ -1,8 +1,7 @@
 function rayinvr_fortran(command, working_dir)
-% rayinvr_fortran(command, working_dir)
+% 从 MATLAB 中调用编译好的 Fortran 原版 Rayinvr 命令，命令包括 rayinvr、tramp、vmodel、pltsyn。
 %
-% Run compiled rayinvr commands(from fortran), including:
-%   rayinvr, tramp, vmodel, pltsyn.
+% rayinvr_fortran(command, working_dir)
 %
 % The command should be in `PATH`, or the full path is required.
 

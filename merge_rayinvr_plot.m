@@ -1,3 +1,5 @@
+% 将 Rayinvr 正演输出的射线图与走时图合并到一张图上
+
 f1 = hgload('ray.fig');
 f2 = hgload('time.fig');
 ax1 = findobj(f1, 'type', 'axes');

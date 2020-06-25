@@ -6,9 +6,15 @@ path_template = 'D:\\Archive\\Research\\rayinvr\\rayinvr-data\\obc\\%s\\%s\\';
 stages = {'stage_1_100', 'stage_0_100', 'stage_0_050', 'stage_0_030', 'stage_0_015', 'stage_0_005'};
 
 
+% 使用步骤：
+% 1. 设置好 r.in、tx.in 等 Rayinvr 配置文件。
+% 2. 执行 run_tramp_fortran 函数（指定纵横波或两者），获得 sect_ext.out 输出文件（包含所有事件的走时、振幅、相位等数据）。
+% 3. 执行 plot_multi_wave_anylyze 函数，解析 sect_ext.out 文件并绘制走时、振幅、相位等分析图像
+% 4. 修改 r.in 参数后，为避免之前已生成的 sect_ext.out 数据被覆盖，可使用 batch_backup_data 函数进行批量备份或重命名，等使用时再改名回来。
 
 % run_tramp_fortran({'p', 's'});
-plot_multi_wave_anylyze('p', 'amp', {3.2, 4.2}, 'sectionAt', [], 'xnoise', 0.003125, 'refresh', true);
+% batch_backup_data('sect_ext.out', 'sect_ext.obc.out', {'p', 's'});
+plot_multi_wave_anylyze('p', 'amp', {3.2,4.2}, 'sectionAt', [0.1,0.3], 'xnoise', 0.00315, 'refresh', true);
 
 
 
@@ -26,6 +32,46 @@ function run_tramp_fortran(waves)
             fprintf('================================================================================\n');
             fprintf(">> rayinvr_fortran('tramp', '%s')\n", path);
             rayinvr_fortran('tramp', path);
+        end
+    end
+end
+
+
+function batch_backup_data(from_name, to_name, waves, copy, overwrite)
+% 批量备份已经生成的 sect_ext.out 数据。
+% 当修改模型之后，如果全部重新生成一遍 sect_ext.out 速度较慢，因此设计该函数批量备份与还原 sect_ext.out 文件，再次使用时不必重新生成，方便多个模型之间做对比。
+% 默认为拷贝备份，如将 copy 参数设为 false，则为重命名备份。
+
+    global path_template stages;
+
+    if nargin < 5, overwrite = false; end
+    if nargin < 4, copy = true; end
+    if nargin < 3, waves = {'p', 's'}; end
+
+    if strcmp(from_name, to_name)
+        error('from_name can not be same with to_name');
+    end
+
+    for ii = 1:numel(stages)
+        for jj = 1:numel(waves)
+            base_path = sprintf(path_template, stages{ii}, waves{jj});
+
+            if ~overwrite && exist(fullfile(base_path, to_name), 'file')
+                answer = questdlg(sprintf('文件名 %s 已存在，是否覆盖？', to_name), '警告', '是', '取消操作', '取消操作');
+                overwrite = strcmp(answer, '是');
+                if ~overwrite
+                    fprintf('Operation canceled!\n');
+                    return;
+                end
+            end
+
+            if copy
+                fprintf('%s : %s |-> %s\n', base_path, from_name, to_name);
+                copyfile(fullfile(base_path, from_name), fullfile(base_path, to_name));
+            else
+                fprintf('%s : %s -> %s\n', base_path, from_name, to_name);
+                movefile(fullfile(base_path, from_name), fullfile(base_path, to_name));
+            end
         end
     end
 end
@@ -114,8 +160,9 @@ function [] = plot_multi_wave_anylyze(wave, ytype, events, varargin)
         end
 
         event_id = all_events{ii};
-        fig = figure('NumberTitle', 'off', 'Name', sprintf('%s-event%s(%s)', ytype,event_id, wave));
+        fig = figure('NumberTitle', 'off', 'Name', sprintf('%s-event%s(%s)', ytype, event_id, wave));
         ax = axes(fig);
+        ax = baldbox(ax);
         hold on;
         for jj = 1:numel(data_s)
             data = data_s{jj};
@@ -149,8 +196,8 @@ function [] = plot_multi_wave_anylyze(wave, ytype, events, varargin)
 
             % 绘制横向图
             left_idx = (offset < 0);
-            curve_left = plot(offset(left_idx), ydata(left_idx), 'LineWidth', 1, 'Color', colors(jj,:), 'DisplayName', sprintf('T%1d', jj-1));
-            curve_right = plot(offset(~left_idx), ydata(~left_idx), 'LineWidth', 1, 'Color', colors(jj,:), 'HandleVisibility','off');
+            curve_left = plot(ax, offset(left_idx), ydata(left_idx), 'LineWidth', 1, 'Color', colors(jj,:), 'DisplayName', sprintf('T%1d', jj-1));
+            curve_right = plot(ax, offset(~left_idx), ydata(~left_idx), 'LineWidth', 1, 'Color', colors(jj,:), 'HandleVisibility','off');
 
             % 收集纵向切片数据，用于绘制纵向剖面图
             for kk = 1:numel(opts.sectionAt)
@@ -163,25 +210,27 @@ function [] = plot_multi_wave_anylyze(wave, ytype, events, varargin)
             end
         end
         hold off;
-        grid on;
-        box on;
         % title(sprintf('Event %s', event_id));
         title(sprintf('%s-%s', wave_mapper_zh(wave), event_id));
+        set(ax, 'TickDir', 'out');
         % 绘制走时，反转 Y 轴
         if contains(ytype_name, 'time', 'IgnoreCase', true)
             set(ax, 'YDir', 'reverse');
         end
         if contains(ytype_name, 'phase', 'IgnoreCase', true)
-            ylim([0, 360]);
+            ylim(ax, [0, 360]);
         end
-        xlabel('偏移距 (km)');
-        ylabel(ytype_name_zh);
-        legend('show');
+        xlabel(ax, '偏移距 (km)');
+        ylabel(ax, ytype_name_zh);
+        lgd = legend(ax, 'show', 'Location', 'Best');
+        set(lgd, 'Color', 'none');
 
         % 绘制纵向剖面图
         if ~isempty(opts.sectionAt)
             fig2 = figure('NumberTitle', 'off', 'Name', sprintf('%s-event%s(%s)-section', ytype,event_id,wave));
+            % set(fig2, 'Name', [get(fig2, 'Name'), '-diff']);
             ax2 = axes(fig2);
+            ax2 = baldbox(ax2);
             hold on;
             for kk = 1:numel(opts.sectionAt)
                 % 绝对量折线图
@@ -192,14 +241,14 @@ function [] = plot_multi_wave_anylyze(wave, ytype, events, varargin)
                 % y = sectionys{kk}; stem(ax2, [0, diff(y)./y(1:end-1)]*100, 'LineWidth', 1, 'DisplayName', sprintf('偏移距=%.2fkm', opts.sectionAt(kk)));
             end
             hold off;
-            box on;
-            grid on;
-            hl = legend(ax2, 'show');
+            lgd = legend(ax2, 'show', 'Location', 'Best');
+            set(lgd, 'Color', 'none');
             title(ax2, sprintf('%s-%s', wave_mapper_zh(wave), event_id));
+            set(ax2, 'TickDir', 'out');
             xlabel(ax2, '时间点');
-            ylabel(ax2, ytype_name_zh); if strcmp(ytype_name, 'Time'), set(ax2, 'YDir', 'reverse'); end
+            ylabel(ax2, ytype_name_zh); if contains(ytype_name, 'time', 'IgnoreCase', true), set(ax2, 'YDir', 'reverse'); end
             % ylabel(ax2, ['差异', replace(ytype_name_zh, '(s)', '(ms)')]);
-            % ylabel(ax2, ['相对差异', ytype_name_zh, ' (%)']); set(hl, 'Location', 'southwest');
+            % ylabel(ax2, ['相对差异', ytype_name_zh, ' (%)']); set(lgd, 'Location', 'southwest');
             xlim([1, 6]);
             xticks(1:6);
             xticklabels(cellfun(@(x) sprintf('T%d', x-1), num2cell(xticks), 'UniformOutput', false));

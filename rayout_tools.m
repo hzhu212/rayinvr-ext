@@ -1,106 +1,158 @@
 % 解析 rayinvr/rayinvr 生成的 r1_ext.out 文件（射线追踪记录）。
 % 进行射线照明分析。
 
-global path_template stages;
+global path_template stages layer_depth param_combinations param_combinations_zh;
 path_template = 'D:\\Archive\\Research\\rayinvr\\rayinvr-data\\obc\\%s\\%s\\';
 stages = {'stage_1_100', 'stage_0_100', 'stage_0_050', 'stage_0_030', 'stage_0_015', 'stage_0_005'};
+layer_depth = [1290, 1410, 1444, 1468];
+param_combinations = {'10km_obc25m_recv25m', '10km_obc12d5m_recv25m', '10km_obc25m_recv12d5m', '10km_obc12d5m_recv12d5m'};
+param_combinations_zh = {'OBC节点间距=25m，炮点距=25m', 'OBC节点间距=12.5m，炮点距=25m', 'OBC节点间距=25m，炮点距=12.5m', 'OBC节点间距=12.5m，炮点距=12.5m'};
+
+
+% 使用步骤：
+% 1. 设置好 r.in、tx.in 等 Rayinvr 配置文件。
+% 2. 执行 run_rayinvr_fortran 函数，对所有子项目配置执行 Rayinvr 正演，获得 r1_ext.out 输出文件。
+% 3. 执行 plot_multi_lighting_analyze 函数，解析所有子项目中的 r1_ext.out 文件，并绘制一张整合的照明分析图。
+
+% run_rayinvr_fortran({'p'})
+plot_multi_lighting_analyze('s', false, 1, 'survey_len', 5, 'bin_width', 0.001);
 
 
 
-% run_rayinvr_fortran({'p', 's'});
-% batch_backup_mat('r1_ext.out', 'r1_ext.10km_obc12d5m_recv12d5m.out');
-plot_multi_lighting_analyze('p', 'r1_ext.10km_obc12d5m_recv12d5m.out', false, 'survey_len', 5, 'bin_width', 0.001);
-
-
-
-function [fig] = plot_multi_lighting_analyze(wave, filename, refresh, varargin)
+function [fig] = plot_multi_lighting_analyze(wave, refresh, plottype, varargin)
 % 绘制各开采阶段的照明分析图
+% plottype：1-正常绘制全图，2-仅绘制云图（位图），3-仅绘制坐标轴及文字标注（矢量图）
 
-    global path_template stages;
+    global path_template stages param_combinations param_combinations_zh;
 
+    if nargin < 4, plottype = 1; end
     if nargin < 3, refresh = true; end
     if nargin < 2, filename = 'r1_ext.out'; end
     if nargin < 1, wave = 'p'; end
 
-    opts = struct('survey_len', 10, 'bin_width', 0.025);
+    opts = struct('survey_len', 5, 'bin_width', 0.025);
     custom_opts = struct(varargin{:});
     names = fieldnames(custom_opts);
     for ii = 1:numel(names)
         opts.(names{ii}) = custom_opts.(names{ii});
     end
 
-    layer_depth = [1290, 1410, 1444, 1468];
-
     mid_point = 5;
     [xmin, xmax] = deal(mid_point - opts.survey_len/2, mid_point + opts.survey_len/2);
     bin_edges = xmin:opts.bin_width:xmax;
+
+    target_stages = [1, 2, 6];
+
+    fig = figure('Position', [20, 0, 1000, 900], 'NumberTitle', 'off');
+    ha = tight_subplot(4, 3, [.035 .015], [.07 .03], [.065 .10]);
+    for ii = 1:numel(param_combinations)
+        filename = sprintf('r1_ext.%s.out', param_combinations{ii});
+        for jj = 1:numel(target_stages)
+            stage_idx = target_stages(jj);
+            filepath = fullfile(sprintf(path_template, stages{stage_idx}, wave), filename);
+            data = load_rayout(filepath, refresh);
+            ax = ha((ii-1)*numel(target_stages) + jj);
+
+            if ii == 1 && jj == 1, ilayer = true; else ilayer = false; end
+            if jj == 1, iytick = true; else iytick = false; end
+            if ii == numel(param_combinations), ixtick = true; else ixtick = false; end
+            plot_one_lighting_analysis(ax, data, bin_edges, sprintf('T%d', stage_idx-1), ilayer, ixtick, iytick, plottype);
+
+            if plottype~=2
+                if jj == 2
+                    subtitle = param_combinations_zh{ii};
+                    subtitle = sprintf('(%s) %s', char(96+ii), subtitle);
+                    text(ax, 0, 1288, subtitle, 'FontName', 'Microsoft Yahei', 'FontSize', 10, 'HorizontalAlignment', 'center', 'VerticalAlignment', 'bottom', 'Interpreter', 'none', 'FontWeight', 'bold');
+                end
+            end
+        end
+    end
+    if plottype~=2
+        % colormap(jet);
+        h = colorbar();
+        set(h, 'Position', [0.92,0.07,0.035,0.90]);
+        ylabel(h, '射线密度 (次/m)', 'FontName', 'Microsoft Yahei', 'FontSize', 10);
+    end
+end
+
+
+function plot_one_lighting_analysis(ax, data, bin_edges, time_label, ilayer, ixtick, iytick, plottype)
+% 根据传入的数据，绘制一副照明分析图
+
+    global layer_depth;
+
+    mid_point = 5;
+    xmin = bin_edges(1);
+    xmax = bin_edges(end);
     bin_centers = (bin_edges(1:end-1) + bin_edges(2:end)) / 2;
 
-    tmp = strsplit(filename, '.');
-    title_str_en = tmp{end-1};
-    title_mapper = containers.Map(...
-        {'10km_obc25m_recv25m', '10km_obc12d5m_recv25m', '10km_obc25m_recv12d5m', '10km_obc12d5m_recv12d5m'}, ...
-        {'OBC节点间距25m，炮检距25m', 'OBC节点间距12.5m，炮检距25m', 'OBC节点间距25m，炮检距12.5m', 'OBC节点间距12.5m，炮检距12.5m'});
-    if title_mapper.isKey(title_str_en)
-        title_str_zh = title_mapper(title_str_en);
-    else
-        title_str_zh = '未知文件名';
-    end
+    [event_ids, xturns, ~] = get_ray_coverage(data, [xmin, xmax]);
 
-    figname = sprintf('LightingAnalyze-%s', title_str_en);
-    fig = figure('Position', [20, 50, 900, 600], 'NumberTitle', 'off', 'Name', figname);
-    % % size with title
-    % ha = tight_subplot(3, 2, [.085 .08], [.07 .06], [.07 .10]);
-    % size without title
-    ha = tight_subplot(3, 2, [.085 .08], [.07 .02], [.07 .10]);
-    for ii = 1:numel(stages)
-        filepath = fullfile(sprintf(path_template, stages{ii}, wave), filename);
-        data = load_rayout(filepath, refresh);
-        [event_ids, xturns, ~] = get_ray_coverage(data, [xmin, xmax]);
+    axes(ax);
+    hold on;
+    for ii = 1:numel(event_ids)
+        event = event_ids{ii};
+        xturn = xturns{ii};
 
-        ax = ha(ii);
-        % ax = subplot_tight(3, 2, ii, [0.08, 0.05]);
-        axes(ax);
+        % 按照小分区统计射线覆盖次数
+        [counts, ~] = histcounts(xturn, bin_edges);
+        % % 使用滑动平均对数据做平滑处理
+        % [counts, ~] = smoothdata(counts, 'movmean', 1);
 
-        hold on;
-        for jj = 1:numel(event_ids)
-            event = event_ids{jj};
-            xturn = xturns{jj};
-
-            % 按照小分区统计射线覆盖次数
-            [counts, ~] = histcounts(xturn, bin_edges);
-            % % 使用滑动平均对数据做平滑处理
-            % [counts, ~] = smoothdata(counts, 'movmean', 1);
-
-            x = bin_centers - mid_point;
-            layer_no = int32(str2num(event));
-            y = layer_depth(layer_no-1:layer_no);
-            [xx, yy] = meshgrid(x, y);
-            zz = repmat(counts, 2, 1);
+        x = bin_centers - mid_point;
+        layer_no = int32(str2num(event));
+        y = layer_depth(layer_no-1:layer_no);
+        [xx, yy] = meshgrid(x, y);
+        zz = repmat(counts, 2, 1);
+        if plottype~=3
             contourf(xx, yy, zz, 100, 'LineStyle', 'none');
         end
-        % for d = layer_depth(2:end-1)
-        %     plot([xmin, xmax], [d, d], 'Color', 'k', 'LineStyle', '--');
-        % end
-        hold off;
-        % title(sprintf('T%d', ii-1), 'FontName', 'Microsoft Yahei', 'FontSize', 10);
-        text(-1.45, 1305, sprintf('T%d', ii-1), 'Color', [1,1,1], 'FontName', 'Microsoft Yahei', 'FontSize', 10);
-        xlabel('偏移距 (km)', 'FontName', 'Microsoft Yahei', 'FontSize', 10);
-        ylabel('深度 (m)', 'FontName', 'Microsoft Yahei', 'FontSize', 10);
-        set(ax, 'YDir', 'reverse');
-        yticks(layer_depth);
-        % xlim([mid_point, xmax] - mid_point);
-        xlim([-1.5, 1.5]);
-        caxis([0, 20]);
     end
-    % colormap(jet);
-    h = colorbar();
-    % % size without title
-    % set(h, 'Position', [0.92,0.07,0.03,0.87]);
-    % size with title
-    set(h, 'Position', [0.92,0.07,0.03,0.91]);
-    ylabel(h, '射线密度 (次/m)', 'FontName', 'Microsoft Yahei', 'FontSize', 10);
-    % mtit(fig, title_str_zh, 'xoff', 0, 'yoff', 0.02, 'Interpreter','none', 'FontName', 'Microsoft Yahei', 'FontSize', 10);
+
+    set(ax,'TickLength',[0.02, 0.02]);
+    set(ax,'Layer','top');
+    set(ax,'TickDir','out');
+    set(ax,'Color','none');
+    set(ax,'YDir','reverse');
+    xlim([-1, 1]);
+    ylim([1290, 1468]);
+    caxis([0, 20]);
+
+    if plottype == 2
+        set(ax, 'Visible', 'off');
+        return;
+    end
+
+    yticks(layer_depth);
+
+    if ilayer
+        for d = layer_depth(2:end-1)
+            plot([xmin, xmax]-mid_point, [d, d], 'Color', [1,1,1], 'LineStyle', '--');
+        end
+        text(-0.95, 1444, 'BSR', 'Color', [1,1,1], 'FontName', 'Microsoft Yahei', 'FontSize', 9, 'VerticalAlignment', 'bottom');
+        text(0.95, 1350, '非储层', 'Color', [1,1,1], 'FontName', 'Microsoft Yahei', 'FontSize', 9, 'HorizontalAlignment', 'right');
+        text(0.95, 1427, '储   层', 'Color', [1,1,1], 'FontName', 'Microsoft Yahei', 'FontSize', 9, 'HorizontalAlignment', 'right');
+        text(0.95, 1456, '含气层', 'Color', [1,1,1], 'FontName', 'Microsoft Yahei', 'FontSize', 9, 'HorizontalAlignment', 'right');
+    end
+
+    if ~isempty(time_label)
+        text(-0.95, 1305, time_label, 'Color', [1,1,1], 'FontName', 'Microsoft Yahei', 'FontSize', 10);
+    end
+
+    if ~ixtick
+        % set(ax, 'XTickLabels', []);
+        set(ax, 'XTick', []);
+    else
+        xlabel('偏移距 (km)', 'FontName', 'Microsoft Yahei', 'FontSize', 10);
+    end
+
+    if ~iytick
+        % set(ax, 'YTickLabels', []);
+        set(ax, 'YTick', []);
+    else
+        ylabel('深度 (m)', 'FontName', 'Microsoft Yahei', 'FontSize', 10);
+    end
+
 end
 
 
@@ -138,6 +190,7 @@ end
 
 function run_rayinvr_fortran(waves)
 % 重新生成全部 r1_ext.out 文件，其实是重新调用 rayinvr/rayinvr 模块
+
     global path_template stages;
 
     if nargin < 1
@@ -150,46 +203,6 @@ function run_rayinvr_fortran(waves)
             fprintf('================================================================================\n');
             fprintf(">> rayinvr_fortran('rayinvr', '%s')\n", path);
             rayinvr_fortran('rayinvr', path);
-        end
-    end
-end
-
-
-function batch_backup_mat(from_name, to_name, copy, overwrite)
-% 批量备份已经生成的 r1_ext.out 数据。
-% 当修改模型之后，如果全部重新生成一遍 r1_ext.out 速度较慢，因此设计该函数批量备份与还原 r1_ext.out 文件，再次使用时不必重新生成，方便多个模型之间做对比。
-% 默认为拷贝备份，如将 copy 参数设为 false，则为重命名备份。
-
-    global path_template stages;
-
-    if nargin < 4, overwrite = false; end
-    if nargin < 3, copy = true; end
-
-    if strcmp(from_name, to_name)
-        error('from_name can not be same with to_name');
-    end
-
-    waves = {'p', 's'};
-    for ii = 1:numel(stages)
-        for jj = 1:numel(waves)
-            base_path = sprintf(path_template, stages{ii}, waves{jj});
-
-            if ~overwrite && exist(fullfile(base_path, to_name), 'file')
-                answer = questdlg(sprintf('文件名 %s 已存在，是否覆盖？', to_name), '警告', '是', '取消操作', '取消操作');
-                overwrite = strcmp(answer, '是');
-                if ~overwrite
-                    fprintf('Operation canceled!\n');
-                    return;
-                end
-            end
-
-            if copy
-                fprintf('%s : %s |-> %s\n', base_path, from_name, to_name);
-                copyfile(fullfile(base_path, from_name), fullfile(base_path, to_name));
-            else
-                fprintf('%s : %s -> %s\n', base_path, from_name, to_name);
-                movefile(fullfile(base_path, from_name), fullfile(base_path, to_name));
-            end
         end
     end
 end
