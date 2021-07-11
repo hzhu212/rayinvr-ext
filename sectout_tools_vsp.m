@@ -17,11 +17,11 @@ wave_mapper_zh = containers.Map({'p', 's'}, {'纵波', '横波'});
 % 4. 修改 r.in 参数后，为避免之前已生成的 sect_ext.out 数据被覆盖，可使用 batch_backup_data 函数进行批量备份或重命名，等使用时再改名回来。
 % 5. 执行 plot_wavelet 函数，绘制模拟波形
 
-% run_tramp_fortran({'s'});
-% batch_backup_data('sect_ext.vsp.out', 'sect_ext.out', {'s'});
+% run_tramp_fortran({'p'});
+% batch_backup_data('sect_ext.out', 'sect_ext.vsp.out', {'p'});
 % merge_vsp_s_parts();
 plot_multi_wave_anylyze('p', 'time', {'3.2','4.2'}, 'refresh', true, 'sectionAt', [19, 21]);
-% plot_wavelet('s', 21, {'3.2', '4.2'}, 100);
+% plot_wavelet('p', 21, {'3.2', '4.2'}, 100);
 
 
 function [wavelet, dt] = ricker_wavelet(FM, len)
@@ -165,7 +165,8 @@ function [] = plot_multi_wave_anylyze(wave, ytype, events, varargin)
 % ytype: 指定绘制数据的类别，包括走时(time)、振幅(amplitude)、相位(phase)。
 % events: 一个 cell，限定要绘制的事件代号，如 {2.2, 3.2}。
 % 可选参数：
-% refresh: 载入 sect.out 数据时强制重新解析原始数据，否则载入缓存的数据。
+% refresh: 载入 sect.out 数据时强制重新解析原始数据，否则载入前一次 .mat 文件缓存的数据，速度会稍快。
+% sectionAt: 在哪些 offset 处创建纵向切片图。默认不创建切片图。
 
     global path_template stages colors layer_depth shots_mapper wave_mapper_zh;
 
@@ -227,7 +228,7 @@ function [] = plot_multi_wave_anylyze(wave, ytype, events, varargin)
     for ii = 1:numel(all_events)
         % 用于收集切面数据
         if ~isempty(opts.sectionAt)
-            section_data = cell(size(opts.sectionAt));
+            sectionys = cell(size(opts.sectionAt));
         end
 
         event_id = all_events{ii};
@@ -255,9 +256,9 @@ function [] = plot_multi_wave_anylyze(wave, ytype, events, varargin)
             for kk = 1:numel(opts.sectionAt)
                 section_idx = find(data.xshot == section_xshot(kk), 1);
                 if ~isempty(section_idx)
-                    section_data{kk}(jj) = ydata(section_idx);
+                    sectionys{kk}(jj) = ydata(section_idx);
                 else
-                    section_data{kk}(jj) = NaN;
+                    sectionys{kk}(jj) = NaN;
                 end
             end
         end
@@ -277,33 +278,39 @@ function [] = plot_multi_wave_anylyze(wave, ytype, events, varargin)
         lgd = legend(ax, 'show');
         set(lgd, 'Color', 'none');
 
-        % 绘制切面图
+        % 绘制纵向剖面图，包含绝对值与 diff 图
         if ~isempty(opts.sectionAt)
             fig2 = figure('NumberTitle', 'off', 'Name', sprintf('%s-event%s(%s)-section-vsp', ytype,event_id,wave));
-            set(fig2, 'Name', [get(fig2, 'Name'), '-diff']);
-            ax2 = axes(fig2);
-            ax2 = baldbox(ax2);
-            hold on;
+            ax2 = baldbox(axes(fig2));
+            fig3 = figure('NumberTitle', 'off', 'Name', [get(fig2, 'Name'), '-diff']);
+            ax3 = baldbox(axes(fig3));
+            hold(ax2, 'on'); hold(ax3, 'on');
             for kk = 1:numel(opts.sectionAt)
-                % % 绝对量折线图
-                % plot(ax2, section_data{kk}, '-o', 'DisplayName', sprintf('节点%.0f', opts.sectionAt(kk)));
-                % 差异走时stem图
-                stem(ax2, [0, diff(section_data{kk})]*1e3, 'LineWidth', 1, 'DisplayName', sprintf('节点%.0f', opts.sectionAt(kk)));
-                % % 相对差异振幅stem图
-                % y = section_data{kk}; stem(ax2, [0, diff(y)./y(1:end-1)]*100, 'LineWidth', 1, 'DisplayName', sprintf('节点%.0f', opts.sectionAt(kk)));
+                % 绝对量折线图
+                plot(ax2, sectionys{kk}, '-o', 'DisplayName', sprintf('节点%.0f', opts.sectionAt(kk)));
+                % 差异走时 stem 图
+                if ~strcmp(ytype, 'amplitude')
+                    stem(ax3, [0, diff(sectionys{kk})]*1e3, 'LineWidth', 1, 'DisplayName', sprintf('节点%.0f', opts.sectionAt(kk)));
+                    % 相对差异振幅 stem 图
+                else
+                    y = sectionys{kk}; stem(ax3, [0, diff(y)./y(1:end-1)]*100, 'LineWidth', 1, 'DisplayName', sprintf('节点%.0f', opts.sectionAt(kk)));
+                end
             end
-            hold off;
-            lgd = legend(ax2, 'show', 'Location', 'Best');
-            set(lgd, 'Color', 'none');
+            hold(ax2, 'off'); hold(ax3, 'off');
+            lgd2 = legend(ax2, 'show', 'Location', 'Best'); set(lgd2, 'Color', 'none');
+            lgd3 = legend(ax3, 'show', 'Location', 'Best'); set(lgd3, 'Color', 'none');
             title(ax2, sprintf('%s-%s', wave_mapper_zh(wave), event_id));
-            set(ax2, 'TickDir', 'out');
-            xlabel(ax2, '时间点');
-            % ylabel(ax2, ytype_name_zh); if contains(ytype_name, 'time', 'IgnoreCase', true), set(ax2, 'YDir', 'reverse'); end
-            ylabel(ax2, ['差异', replace(ytype_name_zh, '(s)', '(ms)')]);
-            % ylabel(ax2, ['相对差异', ytype_name_zh, ' (%)']); set(lgd, 'Location', 'southwest');
-            xlim([1, 6]);
-            xticks(1:6);
-            xticklabels(cellfun(@(x) sprintf('T%d', x-1), num2cell(xticks), 'UniformOutput', false));
+            title(ax3, sprintf('%s-%s', wave_mapper_zh(wave), event_id));
+            set(ax2, 'TickDir', 'out'); xlabel(ax2, '时间点');
+            set(ax3, 'TickDir', 'out'); xlabel(ax3, '时间点');
+            ylabel(ax2, ytype_name_zh); if contains(ytype_name, 'time', 'IgnoreCase', true), set(ax2, 'YDir', 'reverse'); end
+            if ~strcmp(ytype, 'amplitude')
+                ylabel(ax3, ['差异', replace(ytype_name_zh, '(s)', '(ms)')]);
+            else
+                ylabel(ax3, ['相对差异', ytype_name_zh, ' (%)']); set(lgd3, 'Location', 'southwest');
+            end
+            xlim(ax2, [1, 6]); xticks(ax2, 1:6); xticklabels(ax2, cellfun(@(x) sprintf('T%d', x-1), num2cell(xticks), 'UniformOutput', false));
+            xlim(ax3, [1, 6]); xticks(ax3, 1:6); xticklabels(ax3, cellfun(@(x) sprintf('T%d', x-1), num2cell(xticks), 'UniformOutput', false));
         end
     end
 

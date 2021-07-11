@@ -205,10 +205,14 @@ function adapt_wave_analyze(size_descriptor)
         fun_adapt_font(fig);
         ax = get(fig, 'CurrentAxes');
 
+        % 误差分析相关图片的标题包含对 xnoise 的描述，但不应影响图片润色，因此润色时忽略
+        parts = strsplit(figname, '-');
+        figname = strjoin(parts(cellfun(@(x) ~contains(x, 'xnoise='), parts)), '-');
+
         % 生成中文标题
         if contains(figname, 'event')
-            tmp = strsplit(figname, '-');
-            event_desc = tmp{2};
+            parts = strsplit(figname, '-');
+            event_desc = parts{2};
             wave = event_desc(end-1);
             event_id = event_desc(end-5:end-3);
             new_title_str = fun_get_event_description(wave, event_id);
